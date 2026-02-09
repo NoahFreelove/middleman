@@ -136,7 +136,7 @@ instance FromJSON ServiceConfig where
   parseJSON = withObject "ServiceConfig" $ \o -> do
     name <- o .: "name"
     baseUrl <- o .: "baseUrl"
-    auth <- o .: "auth"
+    auth <- parseOptionalAuth o
     routes <- o .:? "routes" .!= []
     scriptObj <- o .:? "scripts" .!= Aeson.Object mempty
     scripts <- parseJSON scriptObj
@@ -159,6 +159,20 @@ instance FromJSON AuthConfig where
       "header" -> pure HeaderAuth
       other -> fail ("Unknown auth type: " <> unpack other)
     pure (AuthConfig authTy token headerName)
+
+-- | Parse the optional "auth" field. Treats missing key and {"type":"none"} as Nothing.
+parseOptionalAuth :: Aeson.Object -> Parser (Maybe AuthConfig)
+parseOptionalAuth o = do
+  mVal <- o .:? "auth"
+  case mVal of
+    Nothing -> pure Nothing
+    Just val -> withObject "auth" checkType val
+  where
+    checkType obj = do
+      typeStr <- obj .:? "type" :: Parser (Maybe Text)
+      case fmap toLower typeStr of
+        Just "none" -> pure Nothing
+        _ -> Just <$> parseJSON (Aeson.Object obj)
 
 instance FromJSON RouteConfig where
   parseJSON = withObject "RouteConfig" $ \o -> do

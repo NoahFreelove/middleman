@@ -81,6 +81,24 @@ spec = do
           BS.isInfixOf "method=POST" body `shouldBe` True
           BS.isInfixOf "body=test body" body `shouldBe` True
 
+    it "proxies a JSON POST body without corruption" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/post")
+          let jsonBody = "{\"key\":\"value\",\"nested\":{\"a\":1,\"b\":[true,false]}}"
+              req = initReq
+                { HTTP.method = methodPost
+                , HTTP.requestBody = HTTP.RequestBodyBS jsonBody
+                , HTTP.requestHeaders = [("Content-Type", "application/json")]
+                }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf ("body=" <> jsonBody) body `shouldBe` True
+
     it "returns 404 for unknown routes" $ do
       Warp.testWithApplication (pure echoApp) $ \targetPort -> do
         let cfg = mkConfig targetPort
@@ -128,6 +146,19 @@ spec = do
           HTTP.responseStatus resp `shouldBe` ok200
           let body = LBS.toStrict (HTTP.responseBody resp)
           BS.isInfixOf "path=/api/items/PROJ-42" body `shouldBe` True
+
+  describe "no-auth service proxy" $ do
+    it "proxies request without injecting auth header" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkNoAuthConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/noauth/get")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf "auth=none" body `shouldBe` True
 
   describe "blanket method proxy" $ do
     it "proxies request via blanket allowedMethods" $ do
@@ -193,7 +224,7 @@ mkConfig targetPort =
           [ ServiceConfig
               { serviceName = "test"
               , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
-              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceAuth = Just (AuthConfig Bearer "test-secret" Nothing)
               , serviceRoutes =
                   [ RouteConfig "/get" "/api/get" methodGet emptyScriptChain
                   , RouteConfig "/post" "/api/post" methodPost emptyScriptChain
@@ -215,7 +246,7 @@ mkParamConfig targetPort =
           [ ServiceConfig
               { serviceName = "test"
               , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
-              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceAuth = Just (AuthConfig Bearer "test-secret" Nothing)
               , serviceRoutes =
                   [ RouteConfig "/items/{id}" "/api/items/{id}" methodGet emptyScriptChain
                   ]
@@ -236,7 +267,7 @@ mkBlanketConfig targetPort =
           [ ServiceConfig
               { serviceName = "test"
               , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
-              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceAuth = Just (AuthConfig Bearer "test-secret" Nothing)
               , serviceRoutes = []
               , serviceScripts = emptyScriptChain
               , allowedMethods = [methodGet, methodPost]
@@ -255,13 +286,34 @@ mkInvertedConfig targetPort =
           [ ServiceConfig
               { serviceName = "test"
               , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
-              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceAuth = Just (AuthConfig Bearer "test-secret" Nothing)
               , serviceRoutes =
                   [ RouteConfig "/admin/settings" "/admin/settings" methodGet emptyScriptChain
                   ]
               , serviceScripts = emptyScriptChain
               , allowedMethods = [methodGet, methodPost]
               , serviceInvert = True
+              }
+          ]
+      }
+
+mkNoAuthConfig :: Int -> GlobalConfig
+mkNoAuthConfig targetPort =
+  normalizeConfig
+    GlobalConfig
+      { globalPort = 0
+      , globalScripts = emptyScriptChain
+      , globalServices =
+          [ ServiceConfig
+              { serviceName = "noauth"
+              , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
+              , serviceAuth = Nothing
+              , serviceRoutes =
+                  [ RouteConfig "/get" "/api/get" methodGet emptyScriptChain
+                  ]
+              , serviceScripts = emptyScriptChain
+              , allowedMethods = []
+              , serviceInvert = False
               }
           ]
       }

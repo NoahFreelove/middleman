@@ -46,7 +46,7 @@ spec = do
         manager <- HTTP.newManager HTTP.defaultManagerSettings
         let svc = mkSvc port
             route = RouteConfig "/test" "/api/hello" methodGet (ScriptChain [] [])
-            req = MiddlemanRequest methodGet "/test" [] "" ""
+            req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
         result <- forwardRequest manager svc route [] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
@@ -60,7 +60,7 @@ spec = do
         manager <- HTTP.newManager HTTP.defaultManagerSettings
         let svc = mkSvc port
             route = RouteConfig "/test" "/api/data" methodPost (ScriptChain [] [])
-            req = MiddlemanRequest methodPost "/test" [] "hello body" ""
+            req = MiddlemanRequest methodPost "/test" [] "hello body" "" "" ""
         result <- forwardRequest manager svc route [] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
@@ -73,7 +73,7 @@ spec = do
         manager <- HTTP.newManager HTTP.defaultManagerSettings
         let svc = mkSvcAuth port Bearer "my-token"
             route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
-            req = MiddlemanRequest methodGet "/test" [] "" ""
+            req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
         result <- forwardRequest manager svc route [] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
@@ -82,21 +82,55 @@ spec = do
 
     it "returns error for unreachable target" $ do
       manager <- HTTP.newManager HTTP.defaultManagerSettings
-      let svc = ServiceConfig "test" "http://localhost:1" (AuthConfig Bearer "tok" Nothing) [] (ScriptChain [] []) [] False
+      let svc = ServiceConfig "test" "http://localhost:1" (Just (AuthConfig Bearer "tok" Nothing)) [] (ScriptChain [] []) [] False
           route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- forwardRequest manager svc route [] req
       case result of
         Left (ProxyConnectionError _) -> pure ()
         Left err -> expectationFailure ("Wrong error type: " <> show err)
         Right _ -> expectationFailure "Expected connection error"
 
+    it "forwards request with no auth when serviceAuth is Nothing" $ do
+      Warp.testWithApplication (pure echoApp) $ \port -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        let svc = ServiceConfig
+              { serviceName = "test"
+              , serviceBaseUrl = pack ("http://localhost:" <> show port)
+              , serviceAuth = Nothing
+              , serviceRoutes = []
+              , serviceScripts = ScriptChain [] []
+              , allowedMethods = []
+              , serviceInvert = False
+              }
+            route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
+            req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
+        result <- forwardRequest manager svc route [] req
+        case result of
+          Left err -> expectationFailure ("Proxy error: " <> show err)
+          Right resp -> do
+            BS.isInfixOf "auth=none" (mresBody resp) `shouldBe` True
+
+    it "forwards a JSON body without corruption" $ do
+      Warp.testWithApplication (pure echoApp) $ \port -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        let svc = mkSvc port
+            route = RouteConfig "/test" "/api/test" methodPost (ScriptChain [] [])
+            jsonBody = "{\"key\":\"value\",\"nested\":{\"a\":1,\"b\":[true,false]}}"
+            req = MiddlemanRequest methodPost "/test"
+                    [("Content-Type", "application/json")] jsonBody "" "" ""
+        result <- forwardRequest manager svc route [] req
+        case result of
+          Left err -> expectationFailure ("Proxy error: " <> show err)
+          Right resp -> do
+            BS.isInfixOf ("body=" <> jsonBody) (mresBody resp) `shouldBe` True
+
     it "substitutes path params in target path" $ do
       Warp.testWithApplication (pure echoApp) $ \port -> do
         manager <- HTTP.newManager HTTP.defaultManagerSettings
         let svc = mkSvc port
             route = RouteConfig "/items/{id}" "/api/items/{id}" methodGet (ScriptChain [] [])
-            req = MiddlemanRequest methodGet "/items/PROJ-42" [] "" ""
+            req = MiddlemanRequest methodGet "/items/PROJ-42" [] "" "" "" ""
         result <- forwardRequest manager svc route [("id", "PROJ-42")] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
@@ -128,7 +162,7 @@ mkSvcAuth port authTy token =
   ServiceConfig
     { serviceName = "test"
     , serviceBaseUrl = pack ("http://localhost:" <> show port)
-    , serviceAuth = AuthConfig authTy token Nothing
+    , serviceAuth = Just (AuthConfig authTy token Nothing)
     , serviceRoutes = []
     , serviceScripts = ScriptChain [] []
     , allowedMethods = []

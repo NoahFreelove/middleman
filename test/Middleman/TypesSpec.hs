@@ -55,7 +55,7 @@ spec = do
     it "can be constructed with auth and routes" $ do
       let auth = AuthConfig Bearer "secret" Nothing
           route = RouteConfig "/test" "/api/test" methodGet emptyScriptChain
-          svc = ServiceConfig "test-service" "https://example.com" auth [route] emptyScriptChain [] False
+          svc = ServiceConfig "test-service" "https://example.com" (Just auth) [route] emptyScriptChain [] False
       serviceName svc `shouldBe` "test-service"
       serviceBaseUrl svc `shouldBe` "https://example.com"
       length (serviceRoutes svc) `shouldBe` 1
@@ -68,15 +68,23 @@ spec = do
 
   describe "MiddlemanRequest JSON" $ do
     it "round-trips through JSON" $ do
-      let req = MiddlemanRequest methodGet "/test" [("Content-Type", "application/json")] "body" "q=1"
+      let req = MiddlemanRequest methodGet "/test" [("Content-Type", "application/json")] "body" "q=1" "" ""
       decode (encode req) `shouldBe` Just req
 
     it "round-trips POST request with empty body" $ do
-      let req = MiddlemanRequest methodPost "/api" [] "" ""
+      let req = MiddlemanRequest methodPost "/api" [] "" "" "" ""
       decode (encode req) `shouldBe` Just req
 
     it "round-trips request with multiple headers" $ do
-      let req = MiddlemanRequest methodGet "/x" [("Accept", "text/html"), ("X-Custom", "val")] "" ""
+      let req = MiddlemanRequest methodGet "/x" [("Accept", "text/html"), ("X-Custom", "val")] "" "" "" ""
+      decode (encode req) `shouldBe` Just req
+
+    it "round-trips request with route context fields" $ do
+      let req = MiddlemanRequest methodGet "/jira/issues/42" [] "" "" "/jira/issues/{id}" "/rest/api/3/issue/42"
+      decode (encode req) `shouldBe` Just req
+
+    it "round-trips request with empty route context (backward compat)" $ do
+      let req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       decode (encode req) `shouldBe` Just req
 
   describe "MiddlemanResponse JSON" $ do

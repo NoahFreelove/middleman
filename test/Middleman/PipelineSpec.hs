@@ -77,7 +77,7 @@ mkCfg scripts = GlobalConfig 8080 scripts []
 
 mkSvc :: ScriptChain -> ServiceConfig
 mkSvc scripts =
-  ServiceConfig "test" "https://example.com" (AuthConfig Bearer "tok" Nothing) [] scripts [] False
+  ServiceConfig "test" "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) [] scripts [] False
 
 mkRoute :: ScriptChain -> RouteConfig
 mkRoute = RouteConfig "/test" "/api/test" methodGet

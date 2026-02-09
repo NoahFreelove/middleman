@@ -22,7 +22,7 @@ module Middleman.Types
   , PathParams
   ) where
 
-import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, withText, (.:), (.=))
+import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, withText, (.:), (.:?), (.!=), (.=))
 import Data.Aeson.Types (Parser)
 import Data.ByteString (ByteString)
 import qualified Data.CaseInsensitive as CI
@@ -90,7 +90,7 @@ data ServiceConfig = ServiceConfig
   { serviceName :: Text
   , serviceBaseUrl :: Text
   -- ^ e.g., "https://mycompany.atlassian.net"
-  , serviceAuth :: AuthConfig
+  , serviceAuth :: Maybe AuthConfig
   , serviceRoutes :: [RouteConfig]
   , serviceScripts :: ScriptChain
   -- ^ Scripts that apply to all routes in this service
@@ -119,6 +119,10 @@ data MiddlemanRequest = MiddlemanRequest
   , mrHeaders :: [Header]
   , mrBody :: ByteString
   , mrQueryString :: ByteString
+  , mrRoutePath :: Text
+  -- ^ Matched route pattern, e.g. "/jira/issues/{id}" (read-only context)
+  , mrTargetPath :: Text
+  -- ^ Resolved target path, e.g. "/rest/api/3/issue/PROJ-42" (read-only context)
   }
   deriving (Show, Eq, Generic)
 
@@ -170,6 +174,8 @@ instance ToJSON MiddlemanRequest where
     , "headers" .= map headerToJSON mrHeaders
     , "body" .= decodeUtf8 mrBody
     , "queryString" .= decodeUtf8 mrQueryString
+    , "routePath" .= mrRoutePath
+    , "targetPath" .= mrTargetPath
     ]
 
 instance FromJSON MiddlemanRequest where
@@ -179,7 +185,9 @@ instance FromJSON MiddlemanRequest where
     headers <- o .: "headers" >>= mapM parseHeader
     body <- encodeUtf8 <$> (o .: "body" :: Parser Text)
     qs <- encodeUtf8 <$> (o .: "queryString" :: Parser Text)
-    pure (MiddlemanRequest method path headers body qs)
+    rPath <- o .:? "routePath" .!= ""
+    tPath <- o .:? "targetPath" .!= ""
+    pure (MiddlemanRequest method path headers body qs rPath tPath)
 
 -- ToJSON / FromJSON for MiddlemanResponse
 

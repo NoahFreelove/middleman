@@ -5,6 +5,7 @@ module Middleman.Proxy
   ) where
 
 import Control.Exception (SomeException, try)
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.CaseInsensitive as CI
 import Data.Text (Text, pack, unpack)
@@ -46,9 +47,10 @@ forwardRequest manager svc route params req = do
       targetUrl = unpack (serviceBaseUrl svc) <> unpack targetPath
   result <- try @SomeException $ do
     initReq <- HTTP.parseRequest targetUrl
-    let authHeaders = buildAuthHeaders (serviceAuth svc)
-        -- Forward original headers, but filter out Host (will be set by http-client)
-        filteredHeaders = filter (\(name, _) -> name /= "Host") (mrHeaders req)
+    let authHeaders = maybe [] buildAuthHeaders (serviceAuth svc)
+        -- Forward original headers, filtering hop-by-hop and framing headers
+        -- that http-client will set itself based on the actual request body
+        filteredHeaders = filter (\(name, _) -> name `notElem` stripRequestHeaders) (mrHeaders req)
         httpReq =
           initReq
             { HTTP.method = mrMethod req
@@ -61,15 +63,35 @@ forwardRequest manager svc route params req = do
     Left err ->
       pure (Left (ProxyConnectionError (pack (show err))))
     Right resp ->
-      pure
+      let respHeaders = filter (\(name, _) -> name `notElem` stripResponseHeaders) (HTTP.responseHeaders resp)
+      in pure
         ( Right
             ( MiddlemanResponse
                 { mresStatus = HTTP.responseStatus resp
-                , mresHeaders = HTTP.responseHeaders resp
+                , mresHeaders = respHeaders
                 , mresBody = LBS.toStrict (HTTP.responseBody resp)
                 }
             )
         )
+
+-- | Headers to strip from the agent's request before forwarding.
+-- These are hop-by-hop or body-framing headers that http-client sets itself
+-- based on the actual request body; forwarding the originals causes conflicts
+-- (duplicate Content-Length, chunked framing on a non-chunked body, etc.).
+stripRequestHeaders :: [CI.CI BS.ByteString]
+stripRequestHeaders =
+  [ "Host"
+  , "Content-Length"
+  , "Transfer-Encoding"
+  ]
+
+-- | Headers to strip from the target's response before returning to the agent.
+-- Warp sets its own framing headers based on the response body we hand it.
+stripResponseHeaders :: [CI.CI BS.ByteString]
+stripResponseHeaders =
+  [ "Content-Length"
+  , "Transfer-Encoding"
+  ]
 
 -- | Build auth headers based on the auth config
 buildAuthHeaders :: AuthConfig -> [Header]

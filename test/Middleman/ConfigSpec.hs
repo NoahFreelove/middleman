@@ -55,8 +55,11 @@ spec = do
           let svc = Prelude.head (globalServices cfg)
           serviceName svc `shouldBe` "test"
           serviceBaseUrl svc `shouldBe` "https://example.com"
-          authType (serviceAuth svc) `shouldBe` Bearer
-          authToken (serviceAuth svc) `shouldBe` "secret"
+          case serviceAuth svc of
+            Just auth -> do
+              authType auth `shouldBe` Bearer
+              authToken auth `shouldBe` "secret"
+            Nothing -> expectationFailure "Expected Just auth"
 
     it "parses route method correctly" $ do
       case parseConfig validConfigJson of
@@ -94,7 +97,9 @@ spec = do
         Left err -> expectationFailure ("Parse failed: " <> show err)
         Right cfg -> do
           let svc = Prelude.head (globalServices cfg)
-          authType (serviceAuth svc) `shouldBe` BasicAuth
+          case serviceAuth svc of
+            Just auth -> authType auth `shouldBe` BasicAuth
+            Nothing -> expectationFailure "Expected Just auth"
 
     it "parses header auth with custom header name" $ do
       let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
@@ -103,8 +108,11 @@ spec = do
         Left err -> expectationFailure ("Parse failed: " <> show err)
         Right cfg -> do
           let svc = Prelude.head (globalServices cfg)
-          authType (serviceAuth svc) `shouldBe` HeaderAuth
-          authHeaderName (serviceAuth svc) `shouldBe` Just "X-Api-Key"
+          case serviceAuth svc of
+            Just auth -> do
+              authType auth `shouldBe` HeaderAuth
+              authHeaderName auth `shouldBe` Just "X-Api-Key"
+            Nothing -> expectationFailure "Expected Just auth"
 
     it "infers Haskell language from .hs extension" $ do
       let json = "{\"globalScripts\":{\"input\":[\"scripts/test.hs\"],\"output\":[]}}"
@@ -180,6 +188,24 @@ spec = do
         Left (ConfigParseError _) -> pure ()
         Left err -> expectationFailure ("Wrong error type: " <> show err)
         Right _ -> expectationFailure "Expected parse error"
+
+    it "parses service without auth key as Nothing" $ do
+      let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
+                 \\"routes\":[]}]}"
+      case parseConfig json of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let svc = Prelude.head (globalServices cfg)
+          serviceAuth svc `shouldBe` Nothing
+
+    it "parses auth type none as Nothing" $ do
+      let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
+                 \\"auth\":{\"type\":\"none\"},\"routes\":[]}]}"
+      case parseConfig json of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let svc = Prelude.head (globalServices cfg)
+          serviceAuth svc `shouldBe` Nothing
 
     it "targetPath defaults to path when omitted" $ do
       let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
@@ -288,15 +314,15 @@ mkService name = mkServiceWithUrl name "https://example.com"
 
 mkServiceWithUrl :: Text -> Text -> [RouteConfig] -> ServiceConfig
 mkServiceWithUrl name url routes =
-  ServiceConfig name url (AuthConfig Bearer "tok" Nothing) routes (ScriptChain [] []) [] False
+  ServiceConfig name url (Just (AuthConfig Bearer "tok" Nothing)) routes (ScriptChain [] []) [] False
 
 mkServiceInverted :: Text -> [RouteConfig] -> Bool -> ServiceConfig
 mkServiceInverted name routes inv =
-  ServiceConfig name "https://example.com" (AuthConfig Bearer "tok" Nothing) routes (ScriptChain [] []) [] inv
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes (ScriptChain [] []) [] inv
 
 mkServiceInvertedWithMethods :: Text -> [Method] -> Bool -> ServiceConfig
 mkServiceInvertedWithMethods name methods inv =
-  ServiceConfig name "https://example.com" (AuthConfig Bearer "tok" Nothing) [] (ScriptChain [] []) methods inv
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) [] (ScriptChain [] []) methods inv
 
 mkRoute :: Text -> Text -> RouteConfig
 mkRoute path target = RouteConfig path target methodGet (ScriptChain [] [])

@@ -18,13 +18,15 @@ import Middleman.Logging
   , newLogger
   )
 import Middleman.Pipeline (PipelineError (..), runPipeline)
-import Middleman.Proxy (ProxyError (..))
+import Middleman.Proxy (ProxyError (..), substituteParams)
 import Middleman.Router (MatchResult (..), matchRoute)
 import Middleman.Script (ScriptError (..))
 import Middleman.Types
   ( GlobalConfig (..)
   , MiddlemanRequest (..)
   , MiddlemanResponse (..)
+  , PathParams
+  , RouteConfig (..)
   )
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as TLS
@@ -79,7 +81,8 @@ makeApp logger manager cfg waiReq respond = do
         "{\"error\":\"Forbidden\"}"
     RouteMatched svc route params -> do
       mReq <- waiToMiddleman waiReq
-      result <- runPipeline manager cfg svc route params mReq
+      let enrichedReq = enrichRequest mReq route params
+      result <- runPipeline manager cfg svc route params enrichedReq
       case result of
         Left err -> do
           logError logger ("Pipeline error: " <> pack (show err))
@@ -100,6 +103,16 @@ waiToMiddleman waiReq = do
     , mrHeaders = Wai.requestHeaders waiReq
     , mrBody = LBS.toStrict body
     , mrQueryString = Wai.rawQueryString waiReq
+    , mrRoutePath = ""
+    , mrTargetPath = ""
+    }
+
+-- | Enrich a MiddlemanRequest with route context (read-only for scripts)
+enrichRequest :: MiddlemanRequest -> RouteConfig -> PathParams -> MiddlemanRequest
+enrichRequest req route params =
+  req
+    { mrRoutePath = routePath route
+    , mrTargetPath = substituteParams params (routeTargetPath route)
     }
 
 -- | Convert a MiddlemanResponse to a WAI Response

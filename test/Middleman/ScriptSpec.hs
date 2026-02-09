@@ -15,7 +15,7 @@ spec = do
   describe "runInputScript (Haskell)" $ do
     it "executes Haskell identity input script via hint" $ do
       let ref = ScriptRef "scripts/example/identity.hs" Haskell
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- runInputScript ref req
       case result of
         Left err -> expectationFailure ("Script error: " <> show err)
@@ -23,7 +23,7 @@ spec = do
 
     it "executes Haskell script that modifies request" $ do
       let ref = ScriptRef "scripts/test/modify-request.hs" Haskell
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- runInputScript ref req
       case result of
         Left err -> expectationFailure ("Script error: " <> show err)
@@ -31,7 +31,7 @@ spec = do
 
     it "returns ScriptLoadError for missing Haskell script" $ do
       let ref = ScriptRef "scripts/nonexistent.hs" Haskell
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- runInputScript ref req
       case result of
         Left (ScriptLoadError _) -> pure ()
@@ -49,7 +49,7 @@ spec = do
   describe "runInputScript (Python)" $ do
     it "executes Python identity input script" $ do
       let ref = ScriptRef "scripts/example/identity.py" Python
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- runInputScript ref req
       case result of
         Left err -> expectationFailure ("Script error: " <> show err)
@@ -57,7 +57,7 @@ spec = do
 
     it "executes Python script that modifies request" $ do
       let ref = ScriptRef "scripts/test/modify-request.py" Python
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- runInputScript ref req
       case result of
         Left err -> expectationFailure ("Script error: " <> show err)
@@ -65,7 +65,7 @@ spec = do
 
     it "returns ScriptLoadError for missing Python script" $ do
       let ref = ScriptRef "scripts/nonexistent.py" Python
-          req = MiddlemanRequest methodGet "/test" [] "" ""
+          req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- runInputScript ref req
       case result of
         Left (ScriptLoadError _) -> pure ()
