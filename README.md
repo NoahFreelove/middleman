@@ -20,6 +20,32 @@ Middleman supports these operations:
 
 
 
+## Installation
+
+You need GHC (Haskell compiler) and Cabal (build tool). The easiest way to get both is [GHCup](https://www.haskell.org/ghcup/):
+
+```bash
+# Mac or Linux — installs ghcup, ghc, and cabal
+curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+```
+
+Follow the prompts, then restart your shell (or `source ~/.bashrc` / `source ~/.zshrc`). Verify with:
+
+```bash
+ghc --version
+cabal --version
+```
+
+## Running it
+
+```bash
+# Build
+cabal build all
+
+# Run with your config
+cabal run middleman -- --config config.json
+```
+
 ## How do I configure it?
 
 Read the config.example.json, for a good example of how to config middleman. 
