@@ -1,0 +1,41 @@
+{
+  "port": 8080,
+  "globalScripts": {
+    "input": [],
+    "output": []
+  },
+  "services": [
+    {
+      "name": "example",
+      "baseUrl": "https://httpbin.org",
+      "auth": {
+        "type": "bearer",
+        "token": "test-token-123"
+      },
+      "scripts": {
+        "input": [],
+        "output": []
+      },
+      "routes": [
+        {
+          "path": "/example/get",
+          "targetPath": "/get",
+          "method": "GET",
+          "scripts": {
+            "input": [],
+            "output": []
+          }
+        },
+        {
+          "path": "/example/post",
+          "targetPath": "/post",
+          "method": "POST",
+          "scripts": {
+            "input": [],
+            "output": []
+          }
+        }
+      ]
+    }
+  ]
+}
