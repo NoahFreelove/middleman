@@ -94,6 +94,10 @@ data ServiceConfig = ServiceConfig
   , serviceRoutes :: [RouteConfig]
   , serviceScripts :: ScriptChain
   -- ^ Scripts that apply to all routes in this service
+  , allowedMethods :: [Method]
+  -- ^ Blanket method permissions for any path under the service, default []
+  , serviceInvert :: Bool
+  -- ^ When True, routes act as a denylist instead of allowlist, default False
   }
   deriving (Show, Eq, Generic)
 

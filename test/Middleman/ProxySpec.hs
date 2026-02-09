@@ -82,7 +82,7 @@ spec = do
 
     it "returns error for unreachable target" $ do
       manager <- HTTP.newManager HTTP.defaultManagerSettings
-      let svc = ServiceConfig "test" "http://localhost:1" (AuthConfig Bearer "tok" Nothing) [] (ScriptChain [] [])
+      let svc = ServiceConfig "test" "http://localhost:1" (AuthConfig Bearer "tok" Nothing) [] (ScriptChain [] []) [] False
           route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
           req = MiddlemanRequest methodGet "/test" [] "" ""
       result <- forwardRequest manager svc route [] req
@@ -131,4 +131,6 @@ mkSvcAuth port authTy token =
     , serviceAuth = AuthConfig authTy token Nothing
     , serviceRoutes = []
     , serviceScripts = ScriptChain [] []
+    , allowedMethods = []
+    , serviceInvert = False
     }

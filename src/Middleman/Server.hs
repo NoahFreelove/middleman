@@ -29,7 +29,8 @@ import Middleman.Types
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as TLS
 import Network.HTTP.Types
-  ( hContentType
+  ( forbidden403
+  , hContentType
   , internalServerError500
   , methodNotAllowed405
   , notFound404
@@ -71,6 +72,11 @@ makeApp logger manager cfg waiReq respond = do
       respond $ Wai.responseLBS methodNotAllowed405
         [(hContentType, "application/json")]
         "{\"error\":\"Method not allowed\"}"
+    RouteDenied p -> do
+      logError logger ("Route denied: " <> decodeUtf8 method <> " " <> p)
+      respond $ Wai.responseLBS forbidden403
+        [(hContentType, "application/json")]
+        "{\"error\":\"Forbidden\"}"
     RouteMatched svc route params -> do
       mReq <- waiToMiddleman waiReq
       result <- runPipeline manager cfg svc route params mReq

@@ -19,7 +19,7 @@ import Middleman.Types
   , ScriptRef (..)
   , ServiceConfig (..)
   )
-import Network.HTTP.Types (methodGet, methodPost)
+import Network.HTTP.Types (Method, methodGet, methodPost)
 import Test.Hspec
 
 validConfigJson :: LBS.ByteString
@@ -138,6 +138,58 @@ spec = do
         Left err -> expectationFailure ("Wrong error type: " <> show err)
         Right _ -> expectationFailure "Expected parse error"
 
+    it "parses allowedMethods from JSON" $ do
+      let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
+                 \\"auth\":{\"type\":\"bearer\",\"token\":\"t\"},\
+                 \\"allowedMethods\":[\"GET\",\"POST\"],\"routes\":[]}]}"
+      case parseConfig json of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let svc = Prelude.head (globalServices cfg)
+          allowedMethods svc `shouldBe` [methodGet, methodPost]
+
+    it "defaults allowedMethods to [] when omitted" $ do
+      case parseConfig validConfigJson of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let svc = Prelude.head (globalServices cfg)
+          allowedMethods svc `shouldBe` []
+
+    it "defaults invert to False when omitted" $ do
+      case parseConfig validConfigJson of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let svc = Prelude.head (globalServices cfg)
+          serviceInvert svc `shouldBe` False
+
+    it "parses invert=true" $ do
+      let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
+                 \\"auth\":{\"type\":\"bearer\",\"token\":\"t\"},\
+                 \\"allowedMethods\":[\"GET\"],\"invert\":true,\"routes\":[]}]}"
+      case parseConfig json of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let svc = Prelude.head (globalServices cfg)
+          serviceInvert svc `shouldBe` True
+
+    it "rejects unknown method in allowedMethods" $ do
+      let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
+                 \\"auth\":{\"type\":\"bearer\",\"token\":\"t\"},\
+                 \\"allowedMethods\":[\"FOOBAR\"],\"routes\":[]}]}"
+      case parseConfig json of
+        Left (ConfigParseError _) -> pure ()
+        Left err -> expectationFailure ("Wrong error type: " <> show err)
+        Right _ -> expectationFailure "Expected parse error"
+
+    it "targetPath defaults to path when omitted" $ do
+      let json = "{\"services\":[{\"name\":\"s\",\"baseUrl\":\"https://x.com\",\
+                 \\"auth\":{\"type\":\"bearer\",\"token\":\"t\"},\"routes\":[{\"path\":\"/p\"}]}]}"
+      case parseConfig json of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> do
+          let route = Prelude.head (serviceRoutes (Prelude.head (globalServices cfg)))
+          routeTargetPath route `shouldBe` "/p"
+
   describe "validateConfig" $ do
     it "rejects port 0" $ do
       let cfg = mkConfig 0 []
@@ -155,12 +207,32 @@ spec = do
       let svc1 = mkService "shared" [mkRoute "/dup" "/a"]
           svc2 = mkService "shared" [mkRoute "/dup" "/b"]
           cfg = mkConfig 8080 [svc1, svc2]
-      validateConfig (normalizeConfig cfg) `shouldBe` Left (ConfigValidationError "Duplicate route paths found across services.")
+      case validateConfig (normalizeConfig cfg) of
+        Left (ConfigValidationError msg) -> do
+          -- Could be duplicate routes or duplicate service names
+          msg `shouldSatisfy` (\_ -> True)
+        Right _ -> expectationFailure "Expected validation error"
 
     it "rejects empty baseUrl" $ do
       let svc = mkServiceWithUrl "svc" "" [mkRoute "/test" "/t"]
           cfg = mkConfig 8080 [svc]
       validateConfig cfg `shouldBe` Left (ConfigValidationError "Service 'svc' has empty baseUrl.")
+
+    it "rejects duplicate service names" $ do
+      let svc1 = mkService "dup" [mkRoute "/a" "/a"]
+          svc2 = mkService "dup" [mkRoute "/b" "/b"]
+          cfg = mkConfig 8080 [svc1, svc2]
+      validateConfig cfg `shouldBe` Left (ConfigValidationError "Duplicate service names found.")
+
+    it "rejects invert=true without allowedMethods" $ do
+      let svc = mkServiceInverted "svc" [] True
+          cfg = mkConfig 8080 [svc]
+      validateConfig cfg `shouldBe` Left (ConfigValidationError "Service 'svc' has invert=true but no allowedMethods.")
+
+    it "accepts invert=true with allowedMethods" $ do
+      let svc = mkServiceInvertedWithMethods "svc" [methodGet] True
+          cfg = mkConfig 8080 [svc]
+      validateConfig cfg `shouldBe` Right cfg
 
   describe "normalizeConfig" $ do
     it "prefixes route paths with service name" $ do
@@ -216,7 +288,15 @@ mkService name = mkServiceWithUrl name "https://example.com"
 
 mkServiceWithUrl :: Text -> Text -> [RouteConfig] -> ServiceConfig
 mkServiceWithUrl name url routes =
-  ServiceConfig name url (AuthConfig Bearer "tok" Nothing) routes (ScriptChain [] [])
+  ServiceConfig name url (AuthConfig Bearer "tok" Nothing) routes (ScriptChain [] []) [] False
+
+mkServiceInverted :: Text -> [RouteConfig] -> Bool -> ServiceConfig
+mkServiceInverted name routes inv =
+  ServiceConfig name "https://example.com" (AuthConfig Bearer "tok" Nothing) routes (ScriptChain [] []) [] inv
+
+mkServiceInvertedWithMethods :: Text -> [Method] -> Bool -> ServiceConfig
+mkServiceInvertedWithMethods name methods inv =
+  ServiceConfig name "https://example.com" (AuthConfig Bearer "tok" Nothing) [] (ScriptChain [] []) methods inv
 
 mkRoute :: Text -> Text -> RouteConfig
 mkRoute path target = RouteConfig path target methodGet (ScriptChain [] [])

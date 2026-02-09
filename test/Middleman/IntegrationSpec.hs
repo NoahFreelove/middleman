@@ -16,7 +16,9 @@ import Middleman.Types
   )
 import qualified Network.HTTP.Client as HTTP
 import Network.HTTP.Types
-  ( hContentType
+  ( forbidden403
+  , hContentType
+  , methodDelete
   , methodGet
   , methodNotAllowed405
   , methodPost
@@ -127,6 +129,58 @@ spec = do
           let body = LBS.toStrict (HTTP.responseBody resp)
           BS.isInfixOf "path=/api/items/PROJ-42" body `shouldBe` True
 
+  describe "blanket method proxy" $ do
+    it "proxies request via blanket allowedMethods" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkBlanketConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/anything/here")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf "method=GET" body `shouldBe` True
+          BS.isInfixOf "path=/anything/here" body `shouldBe` True
+
+  describe "inverted (denylist) proxy" $ do
+    it "returns 403 for denied route" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkInvertedConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/admin/settings")
+          let req = initReq { HTTP.checkResponse = \_ _ -> pure () }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` forbidden403
+
+    it "proxies non-denied path" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkInvertedConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/repos")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf "path=/repos" body `shouldBe` True
+
+    it "returns 405 for method not in allowedMethods on inverted service" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkInvertedConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/repos")
+          let req = initReq
+                { HTTP.method = methodDelete
+                , HTTP.checkResponse = \_ _ -> pure ()
+                }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` methodNotAllowed405
+
 -- Helpers
 
 mkConfig :: Int -> GlobalConfig
@@ -145,6 +199,8 @@ mkConfig targetPort =
                   , RouteConfig "/post" "/api/post" methodPost emptyScriptChain
                   ]
               , serviceScripts = emptyScriptChain
+              , allowedMethods = []
+              , serviceInvert = False
               }
           ]
       }
@@ -164,6 +220,48 @@ mkParamConfig targetPort =
                   [ RouteConfig "/items/{id}" "/api/items/{id}" methodGet emptyScriptChain
                   ]
               , serviceScripts = emptyScriptChain
+              , allowedMethods = []
+              , serviceInvert = False
+              }
+          ]
+      }
+
+mkBlanketConfig :: Int -> GlobalConfig
+mkBlanketConfig targetPort =
+  normalizeConfig
+    GlobalConfig
+      { globalPort = 0
+      , globalScripts = emptyScriptChain
+      , globalServices =
+          [ ServiceConfig
+              { serviceName = "test"
+              , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
+              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceRoutes = []
+              , serviceScripts = emptyScriptChain
+              , allowedMethods = [methodGet, methodPost]
+              , serviceInvert = False
+              }
+          ]
+      }
+
+mkInvertedConfig :: Int -> GlobalConfig
+mkInvertedConfig targetPort =
+  normalizeConfig
+    GlobalConfig
+      { globalPort = 0
+      , globalScripts = emptyScriptChain
+      , globalServices =
+          [ ServiceConfig
+              { serviceName = "test"
+              , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
+              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceRoutes =
+                  [ RouteConfig "/admin/settings" "/admin/settings" methodGet emptyScriptChain
+                  ]
+              , serviceScripts = emptyScriptChain
+              , allowedMethods = [methodGet, methodPost]
+              , serviceInvert = True
               }
           ]
       }

@@ -7,3 +7,5 @@ dist-newstyle/
 cabal.project.local
 *.pyc
 config.json
+
+*DS_Store

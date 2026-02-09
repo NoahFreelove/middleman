@@ -53,6 +53,8 @@ validateConfig cfg = do
   validatePort (globalPort cfg)
   validateNoDuplicateRoutes cfg
   validateServiceUrls cfg
+  validateUniqueServiceNames cfg
+  validateInvertRequiresAllowedMethods cfg
   Right cfg
 
 validatePort :: Int -> Either ConfigError ()
@@ -76,6 +78,22 @@ validateServiceUrls cfg =
       | otherwise = Right ()
       where
         baseUrl = serviceBaseUrl svc
+
+validateUniqueServiceNames :: GlobalConfig -> Either ConfigError ()
+validateUniqueServiceNames cfg =
+  let names = map serviceName (globalServices cfg)
+   in if nub names == names
+        then Right ()
+        else Left (ConfigValidationError "Duplicate service names found.")
+
+validateInvertRequiresAllowedMethods :: GlobalConfig -> Either ConfigError ()
+validateInvertRequiresAllowedMethods cfg =
+  mapM_ check (globalServices cfg)
+  where
+    check svc
+      | serviceInvert svc && null (allowedMethods svc) =
+          Left (ConfigValidationError ("Service '" <> serviceName svc <> "' has invert=true but no allowedMethods."))
+      | otherwise = Right ()
 
 -- | Infer script language from file extension
 inferLanguage :: FilePath -> ScriptLanguage
@@ -122,7 +140,13 @@ instance FromJSON ServiceConfig where
     routes <- o .:? "routes" .!= []
     scriptObj <- o .:? "scripts" .!= Aeson.Object mempty
     scripts <- parseJSON scriptObj
-    pure (ServiceConfig name baseUrl auth routes scripts)
+    methodStrs <- o .:? "allowedMethods" .!= ([] :: [Text])
+    methods <- mapM (\m -> case parseMethod m of
+        Just method -> pure method
+        Nothing     -> fail ("Unknown HTTP method in allowedMethods: " <> unpack m)
+      ) methodStrs
+    invert <- o .:? "invert" .!= False
+    pure (ServiceConfig name baseUrl auth routes scripts methods invert)
 
 instance FromJSON AuthConfig where
   parseJSON = withObject "AuthConfig" $ \o -> do
@@ -139,7 +163,7 @@ instance FromJSON AuthConfig where
 instance FromJSON RouteConfig where
   parseJSON = withObject "RouteConfig" $ \o -> do
     path <- o .: "path"
-    targetPath <- o .: "targetPath"
+    targetPath <- o .:? "targetPath" .!= path
     methodStr <- o .:? "method" .!= ("GET" :: Text)
     method <- case parseMethod methodStr of
       Just m -> pure m

@@ -12,6 +12,7 @@
         "type": "bearer",
         "token": "test-token-123"
       },
+      "allowedMethods": ["GET", "POST"],
       "scripts": {
         "input": [],
         "output": []
@@ -34,6 +35,47 @@
             "input": [],
             "output": []
           }
+        }
+      ]
+    },
+    {
+      "name": "jira",
+      "baseUrl": "https://mycompany.atlassian.net",
+      "auth": {
+        "type": "bearer",
+        "token": "jira-api-token"
+      },
+      "routes": [
+        {
+          "path": "/issues/{id}",
+          "targetPath": "/rest/api/3/issue/{id}",
+          "method": "GET"
+        },
+        {
+          "path": "/projects/{proj}/issues/{id}",
+          "targetPath": "/rest/api/3/issue/{id}",
+          "method": "GET"
+        },
+        {
+          "path": "/projects/{proj}/issues/{id}/comments",
+          "targetPath": "/rest/api/3/issue/{id}/comment",
+          "method": "GET"
+        }
+      ]
+    },
+    {
+      "name": "github",
+      "baseUrl": "https://api.github.com",
+      "auth": {
+        "type": "bearer",
+        "token": "ghp_xxxxxxxxxxxx"
+      },
+      "allowedMethods": ["GET", "POST"],
+      "invert": true,
+      "routes": [
+        {
+          "path": "/admin/settings",
+          "method": "GET"
         }
       ]
     }

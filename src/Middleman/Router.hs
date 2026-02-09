@@ -2,6 +2,8 @@ module Middleman.Router
   ( MatchResult (..)
   , matchRoute
   , matchPattern
+  , findOwningService
+  , synthesizeBlanketRoute
   ) where
 
 import Data.Text (Text)
@@ -10,6 +12,7 @@ import Middleman.Types
   ( GlobalConfig (..)
   , PathParams
   , RouteConfig (..)
+  , ScriptChain (..)
   , ServiceConfig (..)
   )
 import Network.HTTP.Types (Method)
@@ -17,29 +20,96 @@ import Network.HTTP.Types (Method)
 -- | Result of matching an incoming request to a route
 data MatchResult
   = RouteMatched ServiceConfig RouteConfig PathParams
+  | RouteDenied Text
   | NoRouteFound
   | MethodNotAllowed Text
   deriving (Show)
 
 -- | Match an incoming request path and method to a route.
--- Pattern-based matching with {param} captures, first-match-wins across all services.
+-- Dispatches to per-service matching based on path prefix.
 matchRoute :: GlobalConfig -> Text -> Method -> MatchResult
 matchRoute cfg path method =
-  case findByPath path (globalServices cfg) of
-    [] -> NoRouteFound
-    candidates ->
-      case filter (\(_, r, _) -> routeMethod r == method) candidates of
-        ((svc, route, params) : _) -> RouteMatched svc route params
-        [] -> MethodNotAllowed path
+  case findOwningService path (globalServices cfg) of
+    Nothing  -> NoRouteFound
+    Just svc
+      | serviceInvert svc -> matchInverted svc path method
+      | otherwise         -> matchNormal svc path method
 
--- | Find all (service, route, params) triples where the route pattern matches the path
-findByPath :: Text -> [ServiceConfig] -> [(ServiceConfig, RouteConfig, PathParams)]
-findByPath path services =
-  [ (svc, route, params)
-  | svc <- services
-  , route <- serviceRoutes svc
-  , Just params <- [matchPattern (routePath route) path]
-  ]
+-- | Find which service owns a path by checking if path starts with /<serviceName>/
+-- or equals /<serviceName> exactly.
+findOwningService :: Text -> [ServiceConfig] -> Maybe ServiceConfig
+findOwningService path = go
+  where
+    go [] = Nothing
+    go (svc : rest)
+      | T.isPrefixOf prefix path = Just svc
+      | path == ("/" <> serviceName svc) = Just svc
+      | otherwise = go rest
+      where
+        prefix = "/" <> serviceName svc <> "/"
+
+-- | Allowlist mode: explicit routes take priority, then blanket allowedMethods.
+matchNormal :: ServiceConfig -> Text -> Method -> MatchResult
+matchNormal svc path method =
+  let routes = serviceRoutes svc
+      -- Find explicit routes matching the path (any method)
+      pathMatches = [ (route, params)
+                    | route <- routes
+                    , Just params <- [matchPattern (routePath route) path]
+                    ]
+      -- Among path matches, find those with the right method
+      fullMatches = [ (route, params)
+                    | (route, params) <- pathMatches
+                    , routeMethod route == method
+                    ]
+      blanket = allowedMethods svc
+   in case fullMatches of
+        ((route, params) : _) -> RouteMatched svc route params
+        [] | not (null pathMatches) && method `notElem` blanket ->
+               -- Path matched an explicit route but wrong method, and no blanket covers it
+               MethodNotAllowed path
+           | method `elem` blanket ->
+               -- Blanket match
+               RouteMatched svc (synthesizeBlanketRoute (serviceName svc) path method) []
+           | not (null blanket) ->
+               -- Blanket exists but method not in it
+               MethodNotAllowed path
+           | otherwise -> NoRouteFound
+
+-- | Denylist mode: deny explicitly listed routes, allow everything else within allowedMethods.
+matchInverted :: ServiceConfig -> Text -> Method -> MatchResult
+matchInverted svc path method
+  | method `notElem` allowedMethods svc = MethodNotAllowed path
+  | otherwise =
+      let routes = serviceRoutes svc
+          -- Check if this path+method is on the denylist
+          denied = [ route
+                   | route <- routes
+                   , Just _ <- [matchPattern (routePath route) path]
+                   , routeMethod route == method
+                   ]
+       in case denied of
+            (_ : _) -> RouteDenied path
+            []      -> RouteMatched svc (synthesizeBlanketRoute (serviceName svc) path method) []
+
+-- | Synthesize a RouteConfig for blanket matches (no explicit route).
+-- Strips the /<serviceName> prefix from the path to derive the target path.
+synthesizeBlanketRoute :: Text -> Text -> Method -> RouteConfig
+synthesizeBlanketRoute svcName path method =
+  RouteConfig
+    { routePath = path
+    , routeTargetPath = stripServicePrefix svcName path
+    , routeMethod = method
+    , routeScripts = ScriptChain [] []
+    }
+
+-- | Strip the /<serviceName> prefix from a path.
+-- e.g., stripServicePrefix "jira" "/jira/rest/api/3/search" = "/rest/api/3/search"
+stripServicePrefix :: Text -> Text -> Text
+stripServicePrefix svcName path =
+  let prefix = "/" <> svcName
+      stripped = T.drop (T.length prefix) path
+   in if T.null stripped then "/" else stripped
 
 -- | Match a route pattern against a request path, capturing {param} segments.
 -- Returns Nothing if the pattern does not match.
