@@ -4,6 +4,7 @@ module Middleman.Config
   ( loadConfig
   , parseConfig
   , validateConfig
+  , normalizeConfig
   , module Middleman.Config.Types
   ) where
 
@@ -14,6 +15,7 @@ import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import Data.List (nub)
 import Data.Text (Text, pack, toLower, unpack)
+import qualified Data.Text as T
 import Middleman.Config.Types
 import Middleman.Types
   ( AuthConfig (..)
@@ -36,7 +38,7 @@ loadConfig path = do
     then pure (Left (ConfigFileNotFound path))
     else do
       contents <- LBS.readFile path
-      pure (parseConfig contents >>= validateConfig)
+      pure (parseConfig contents >>= (validateConfig . normalizeConfig))
 
 -- | Parse a JSON ByteString into a GlobalConfig
 parseConfig :: ByteString -> Either ConfigError GlobalConfig
@@ -145,3 +147,22 @@ instance FromJSON RouteConfig where
     scriptObj <- o .:? "scripts" .!= Aeson.Object mempty
     scripts <- parseJSON scriptObj
     pure (RouteConfig path targetPath method scripts)
+
+-- | Normalize config by prepending service name to each route's path
+normalizeConfig :: GlobalConfig -> GlobalConfig
+normalizeConfig cfg =
+  cfg { globalServices = map prefixService (globalServices cfg) }
+
+-- | Prefix all routes in a service with the service name
+prefixService :: ServiceConfig -> ServiceConfig
+prefixService svc =
+  svc { serviceRoutes = map (prefixRoute (serviceName svc)) (serviceRoutes svc) }
+
+-- | Prefix a route path with the service name, e.g. "jira" + "/issues/{id}" -> "/jira/issues/{id}"
+prefixRoute :: Text -> RouteConfig -> RouteConfig
+prefixRoute name route =
+  route { routePath = "/" <> name <> ensureLeadingSlash (routePath route) }
+  where
+    ensureLeadingSlash t
+      | T.isPrefixOf "/" t = t
+      | otherwise = "/" <> t

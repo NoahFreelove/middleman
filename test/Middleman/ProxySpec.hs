@@ -3,7 +3,7 @@ module Middleman.ProxySpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text, pack)
-import Middleman.Proxy (ProxyError (..), forwardRequest)
+import Middleman.Proxy (ProxyError (..), forwardRequest, substituteParams)
 import Middleman.Types
   ( AuthConfig (..)
   , AuthType (..)
@@ -47,7 +47,7 @@ spec = do
         let svc = mkSvc port
             route = RouteConfig "/test" "/api/hello" methodGet (ScriptChain [] [])
             req = MiddlemanRequest methodGet "/test" [] "" ""
-        result <- forwardRequest manager svc route req
+        result <- forwardRequest manager svc route [] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
           Right resp -> do
@@ -61,7 +61,7 @@ spec = do
         let svc = mkSvc port
             route = RouteConfig "/test" "/api/data" methodPost (ScriptChain [] [])
             req = MiddlemanRequest methodPost "/test" [] "hello body" ""
-        result <- forwardRequest manager svc route req
+        result <- forwardRequest manager svc route [] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
           Right resp -> do
@@ -74,7 +74,7 @@ spec = do
         let svc = mkSvcAuth port Bearer "my-token"
             route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
             req = MiddlemanRequest methodGet "/test" [] "" ""
-        result <- forwardRequest manager svc route req
+        result <- forwardRequest manager svc route [] req
         case result of
           Left err -> expectationFailure ("Proxy error: " <> show err)
           Right resp -> do
@@ -85,11 +85,38 @@ spec = do
       let svc = ServiceConfig "test" "http://localhost:1" (AuthConfig Bearer "tok" Nothing) [] (ScriptChain [] [])
           route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
           req = MiddlemanRequest methodGet "/test" [] "" ""
-      result <- forwardRequest manager svc route req
+      result <- forwardRequest manager svc route [] req
       case result of
         Left (ProxyConnectionError _) -> pure ()
         Left err -> expectationFailure ("Wrong error type: " <> show err)
         Right _ -> expectationFailure "Expected connection error"
+
+    it "substitutes path params in target path" $ do
+      Warp.testWithApplication (pure echoApp) $ \port -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        let svc = mkSvc port
+            route = RouteConfig "/items/{id}" "/api/items/{id}" methodGet (ScriptChain [] [])
+            req = MiddlemanRequest methodGet "/items/PROJ-42" [] "" ""
+        result <- forwardRequest manager svc route [("id", "PROJ-42")] req
+        case result of
+          Left err -> expectationFailure ("Proxy error: " <> show err)
+          Right resp -> do
+            BS.isInfixOf "path=/api/items/PROJ-42" (mresBody resp) `shouldBe` True
+
+  describe "substituteParams" $ do
+    it "replaces a single param" $ do
+      substituteParams [("id", "42")] "/api/items/{id}" `shouldBe` "/api/items/42"
+
+    it "replaces multiple params" $ do
+      substituteParams [("proj", "ACME"), ("id", "99")] "/api/{proj}/issues/{id}"
+        `shouldBe` "/api/ACME/issues/99"
+
+    it "returns template unchanged when no params" $ do
+      substituteParams [] "/api/items" `shouldBe` "/api/items"
+
+    it "leaves unmatched placeholders intact" $ do
+      substituteParams [("id", "42")] "/api/{proj}/items/{id}"
+        `shouldBe` "/api/{proj}/items/42"
 
 -- Helpers
 

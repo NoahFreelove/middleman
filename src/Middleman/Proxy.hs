@@ -1,18 +1,21 @@
 module Middleman.Proxy
   ( ProxyError (..)
   , forwardRequest
+  , substituteParams
   ) where
 
 import Control.Exception (SomeException, try)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.CaseInsensitive as CI
 import Data.Text (Text, pack, unpack)
+import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import Middleman.Types
   ( AuthConfig (..)
   , AuthType (..)
   , MiddlemanRequest (..)
   , MiddlemanResponse (..)
+  , PathParams
   , RouteConfig (..)
   , ServiceConfig (..)
   )
@@ -25,15 +28,22 @@ data ProxyError
   | ProxyHttpError Text
   deriving (Show, Eq)
 
+-- | Substitute {param} placeholders in a template with captured values
+substituteParams :: PathParams -> Text -> Text
+substituteParams params template =
+  foldl' (\t (name, val) -> T.replace ("{" <> name <> "}") val t) template params
+
 -- | Forward a request to the target service
 forwardRequest
   :: HTTP.Manager
   -> ServiceConfig
   -> RouteConfig
+  -> PathParams
   -> MiddlemanRequest
   -> IO (Either ProxyError MiddlemanResponse)
-forwardRequest manager svc route req = do
-  let targetUrl = unpack (serviceBaseUrl svc) <> unpack (routeTargetPath route)
+forwardRequest manager svc route params req = do
+  let targetPath = substituteParams params (routeTargetPath route)
+      targetUrl = unpack (serviceBaseUrl svc) <> unpack targetPath
   result <- try @SomeException $ do
     initReq <- HTTP.parseRequest targetUrl
     let authHeaders = buildAuthHeaders (serviceAuth svc)

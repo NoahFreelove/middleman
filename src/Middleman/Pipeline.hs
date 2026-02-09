@@ -12,6 +12,7 @@ import Middleman.Types
   ( GlobalConfig (..)
   , MiddlemanRequest
   , MiddlemanResponse
+  , PathParams
   , RouteConfig (..)
   , ScriptChain (..)
   , ScriptRef
@@ -44,9 +45,10 @@ runPipeline
   -> GlobalConfig
   -> ServiceConfig
   -> RouteConfig
+  -> PathParams
   -> MiddlemanRequest
   -> IO (Either PipelineError MiddlemanResponse)
-runPipeline manager cfg svc route req = do
+runPipeline manager cfg svc route params req = do
   let inChain = buildInputChain cfg svc route
       outChain = buildOutputChain cfg svc route
   -- Run input scripts (foldM)
@@ -55,7 +57,7 @@ runPipeline manager cfg svc route req = do
     Left err -> pure (Left (PipelineScriptError err))
     Right transformedReq -> do
       -- Forward to target
-      proxyResult <- forwardRequest manager svc route transformedReq
+      proxyResult <- forwardRequest manager svc route params transformedReq
       case proxyResult of
         Left err -> pure (Left (PipelineProxyError err))
         Right resp -> do

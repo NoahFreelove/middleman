@@ -4,6 +4,7 @@ import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Text (Text)
 import Middleman.Config
   ( ConfigError (..)
+  , normalizeConfig
   , parseConfig
   , renderConfigError
   , validateConfig
@@ -24,7 +25,7 @@ import Test.Hspec
 validConfigJson :: LBS.ByteString
 validConfigJson =
   "{\"port\":9090,\"services\":[{\"name\":\"test\",\"baseUrl\":\"https://example.com\",\
-  \\"auth\":{\"type\":\"bearer\",\"token\":\"secret\"},\"routes\":[{\"path\":\"/test/hello\",\
+  \\"auth\":{\"type\":\"bearer\",\"token\":\"secret\"},\"routes\":[{\"path\":\"/hello\",\
   \\"targetPath\":\"/api/hello\",\"method\":\"GET\"}]}]}"
 
 minimalConfigJson :: LBS.ByteString
@@ -62,7 +63,7 @@ spec = do
         Left err -> expectationFailure ("Parse failed: " <> show err)
         Right cfg -> do
           let route = Prelude.head (serviceRoutes (Prelude.head (globalServices cfg)))
-          routePath route `shouldBe` "/test/hello"
+          routePath route `shouldBe` "/hello"
           routeTargetPath route `shouldBe` "/api/hello"
           routeMethod route `shouldBe` methodGet
 
@@ -151,15 +152,44 @@ spec = do
       validateConfig cfg `shouldBe` Right cfg
 
     it "rejects duplicate route paths" $ do
-      let svc1 = mkService "svc1" [mkRoute "/dup" "/a"]
-          svc2 = mkService "svc2" [mkRoute "/dup" "/b"]
+      let svc1 = mkService "shared" [mkRoute "/dup" "/a"]
+          svc2 = mkService "shared" [mkRoute "/dup" "/b"]
           cfg = mkConfig 8080 [svc1, svc2]
-      validateConfig cfg `shouldBe` Left (ConfigValidationError "Duplicate route paths found across services.")
+      validateConfig (normalizeConfig cfg) `shouldBe` Left (ConfigValidationError "Duplicate route paths found across services.")
 
     it "rejects empty baseUrl" $ do
       let svc = mkServiceWithUrl "svc" "" [mkRoute "/test" "/t"]
           cfg = mkConfig 8080 [svc]
       validateConfig cfg `shouldBe` Left (ConfigValidationError "Service 'svc' has empty baseUrl.")
+
+  describe "normalizeConfig" $ do
+    it "prefixes route paths with service name" $ do
+      let svc = mkService "jira" [mkRoute "/issues" "/api/issues"]
+          cfg = mkConfig 8080 [svc]
+          normalized = normalizeConfig cfg
+          routes = serviceRoutes (Prelude.head (globalServices normalized))
+      routePath (Prelude.head routes) `shouldBe` "/jira/issues"
+
+    it "does not modify targetPath" $ do
+      let svc = mkService "jira" [mkRoute "/issues" "/api/issues"]
+          cfg = mkConfig 8080 [svc]
+          normalized = normalizeConfig cfg
+          routes = serviceRoutes (Prelude.head (globalServices normalized))
+      routeTargetPath (Prelude.head routes) `shouldBe` "/api/issues"
+
+    it "handles route path without leading slash" $ do
+      let svc = mkService "jira" [mkRoute "issues" "/api/issues"]
+          cfg = mkConfig 8080 [svc]
+          normalized = normalizeConfig cfg
+          routes = serviceRoutes (Prelude.head (globalServices normalized))
+      routePath (Prelude.head routes) `shouldBe` "/jira/issues"
+
+    it "handles route path with leading slash" $ do
+      let svc = mkService "jira" [mkRoute "/issues/{id}" "/api/issues/{id}"]
+          cfg = mkConfig 8080 [svc]
+          normalized = normalizeConfig cfg
+          routes = serviceRoutes (Prelude.head (globalServices normalized))
+      routePath (Prelude.head routes) `shouldBe` "/jira/issues/{id}"
 
   describe "renderConfigError" $ do
     it "renders ConfigFileNotFound" $ do

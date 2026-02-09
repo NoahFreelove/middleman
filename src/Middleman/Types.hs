@@ -17,6 +17,9 @@ module Middleman.Types
     -- * Request/Response Types
   , MiddlemanRequest (..)
   , MiddlemanResponse (..)
+
+    -- * Path Parameters
+  , PathParams
   ) where
 
 import Data.Aeson (FromJSON (..), ToJSON (..), Value, object, withObject, withText, (.:), (.=))
@@ -101,6 +104,9 @@ data GlobalConfig = GlobalConfig
   , globalServices :: [ServiceConfig]
   }
   deriving (Show, Eq, Generic)
+
+-- | Captured path parameters from parameterized route matching
+type PathParams = [(Text, Text)]
 
 -- | Simplified request type that scripts operate on (decoupled from WAI)
 data MiddlemanRequest = MiddlemanRequest

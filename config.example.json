@@ -18,7 +18,7 @@
       },
       "routes": [
         {
-          "path": "/example/get",
+          "path": "/get",
           "targetPath": "/get",
           "method": "GET",
           "scripts": {
@@ -27,7 +27,7 @@
           }
         },
         {
-          "path": "/example/post",
+          "path": "/post",
           "targetPath": "/post",
           "method": "POST",
           "scripts": {

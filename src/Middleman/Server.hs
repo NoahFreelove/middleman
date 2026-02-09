@@ -71,9 +71,9 @@ makeApp logger manager cfg waiReq respond = do
       respond $ Wai.responseLBS methodNotAllowed405
         [(hContentType, "application/json")]
         "{\"error\":\"Method not allowed\"}"
-    RouteMatched svc route -> do
+    RouteMatched svc route params -> do
       mReq <- waiToMiddleman waiReq
-      result <- runPipeline manager cfg svc route mReq
+      result <- runPipeline manager cfg svc route params mReq
       case result of
         Left err -> do
           logError logger ("Pipeline error: " <> pack (show err))

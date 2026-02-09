@@ -3,6 +3,7 @@ module Middleman.IntegrationSpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (pack)
+import Middleman.Config (normalizeConfig)
 import Middleman.Logging (newLogger)
 import Middleman.Server (makeApp)
 import Middleman.Types
@@ -114,23 +115,55 @@ spec = do
           let body = LBS.toStrict (HTTP.responseBody resp)
           BS.isInfixOf "auth=Bearer test-secret" body `shouldBe` True
 
+    it "forwards parameterized route with substitution" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkParamConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/items/PROJ-42")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf "path=/api/items/PROJ-42" body `shouldBe` True
+
 -- Helpers
 
 mkConfig :: Int -> GlobalConfig
 mkConfig targetPort =
-  GlobalConfig
-    { globalPort = 0  -- not used directly in testWithApplication
-    , globalScripts = emptyScriptChain
-    , globalServices =
-        [ ServiceConfig
-            { serviceName = "test"
-            , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
-            , serviceAuth = AuthConfig Bearer "test-secret" Nothing
-            , serviceRoutes =
-                [ RouteConfig "/test/get" "/api/get" methodGet emptyScriptChain
-                , RouteConfig "/test/post" "/api/post" methodPost emptyScriptChain
-                ]
-            , serviceScripts = emptyScriptChain
-            }
-        ]
-    }
+  normalizeConfig
+    GlobalConfig
+      { globalPort = 0  -- not used directly in testWithApplication
+      , globalScripts = emptyScriptChain
+      , globalServices =
+          [ ServiceConfig
+              { serviceName = "test"
+              , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
+              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceRoutes =
+                  [ RouteConfig "/get" "/api/get" methodGet emptyScriptChain
+                  , RouteConfig "/post" "/api/post" methodPost emptyScriptChain
+                  ]
+              , serviceScripts = emptyScriptChain
+              }
+          ]
+      }
+
+mkParamConfig :: Int -> GlobalConfig
+mkParamConfig targetPort =
+  normalizeConfig
+    GlobalConfig
+      { globalPort = 0
+      , globalScripts = emptyScriptChain
+      , globalServices =
+          [ ServiceConfig
+              { serviceName = "test"
+              , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
+              , serviceAuth = AuthConfig Bearer "test-secret" Nothing
+              , serviceRoutes =
+                  [ RouteConfig "/items/{id}" "/api/items/{id}" methodGet emptyScriptChain
+                  ]
+              , serviceScripts = emptyScriptChain
+              }
+          ]
+      }
