@@ -29,11 +29,13 @@ echoApp :: Wai.Application
 echoApp waiReq respond = do
   body <- Wai.consumeRequestBodyStrict waiReq
   let path = Wai.rawPathInfo waiReq
+      qs = Wai.rawQueryString waiReq
       method = Wai.requestMethod waiReq
       authHeader = lookup "Authorization" (Wai.requestHeaders waiReq)
       responseBody = LBS.fromStrict $
         "method=" <> method
         <> ",path=" <> path
+        <> ",query=" <> qs
         <> ",auth=" <> maybe "none" id authHeader
         <> ",body=" <> LBS.toStrict body
   respond $ Wai.responseLBS ok200 [(hContentType, "text/plain")] responseBody
@@ -82,7 +84,7 @@ spec = do
 
     it "returns error for unreachable target" $ do
       manager <- HTTP.newManager HTTP.defaultManagerSettings
-      let svc = ServiceConfig "test" "http://localhost:1" (Just (AuthConfig Bearer "tok" Nothing)) [] (ScriptChain [] []) [] False
+      let svc = ServiceConfig "test" "http://localhost:1" (Just (AuthConfig Bearer "tok" Nothing)) [] (ScriptChain [] []) [] "" False
           route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
           req = MiddlemanRequest methodGet "/test" [] "" "" "" ""
       result <- forwardRequest manager svc route [] req
@@ -101,6 +103,7 @@ spec = do
               , serviceRoutes = []
               , serviceScripts = ScriptChain [] []
               , allowedMethods = []
+              , allowedMethodsBasePath = ""
               , serviceInvert = False
               }
             route = RouteConfig "/test" "/api/test" methodGet (ScriptChain [] [])
@@ -124,6 +127,18 @@ spec = do
           Left err -> expectationFailure ("Proxy error: " <> show err)
           Right resp -> do
             BS.isInfixOf ("body=" <> jsonBody) (mresBody resp) `shouldBe` True
+
+    it "forwards query parameters to target" $ do
+      Warp.testWithApplication (pure echoApp) $ \port -> do
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        let svc = mkSvc port
+            route = RouteConfig "/test" "/api/hello" methodGet (ScriptChain [] [])
+            req = MiddlemanRequest methodGet "/test" [] "" "?foo=bar&baz=1" "" ""
+        result <- forwardRequest manager svc route [] req
+        case result of
+          Left err -> expectationFailure ("Proxy error: " <> show err)
+          Right resp -> do
+            BS.isInfixOf "query=?foo=bar&baz=1" (mresBody resp) `shouldBe` True
 
     it "substitutes path params in target path" $ do
       Warp.testWithApplication (pure echoApp) $ \port -> do
@@ -166,5 +181,6 @@ mkSvcAuth port authTy token =
     , serviceRoutes = []
     , serviceScripts = ScriptChain [] []
     , allowedMethods = []
+    , allowedMethodsBasePath = ""
     , serviceInvert = False
     }

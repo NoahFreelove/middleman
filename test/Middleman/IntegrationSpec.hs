@@ -34,11 +34,13 @@ echoApp :: Wai.Application
 echoApp waiReq respond = do
   body <- Wai.consumeRequestBodyStrict waiReq
   let path = Wai.rawPathInfo waiReq
+      qs = Wai.rawQueryString waiReq
       method = Wai.requestMethod waiReq
       authHeader = lookup "Authorization" (Wai.requestHeaders waiReq)
       responseBody = LBS.fromStrict $
         "method=" <> method
         <> ",path=" <> path
+        <> ",query=" <> qs
         <> ",auth=" <> maybe "none" id authHeader
         <> ",body=" <> LBS.toStrict body
   respond $ Wai.responseLBS ok200 [(hContentType, "text/plain")] responseBody
@@ -98,6 +100,18 @@ spec = do
           HTTP.responseStatus resp `shouldBe` ok200
           let body = LBS.toStrict (HTTP.responseBody resp)
           BS.isInfixOf ("body=" <> jsonBody) body `shouldBe` True
+
+    it "forwards query parameters end-to-end" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/get?jql=project%3DTEST&maxResults=50")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf "query=?jql=project%3DTEST&maxResults=50" body `shouldBe` True
 
     it "returns 404 for unknown routes" $ do
       Warp.testWithApplication (pure echoApp) $ \targetPort -> do
@@ -231,6 +245,7 @@ mkConfig targetPort =
                   ]
               , serviceScripts = emptyScriptChain
               , allowedMethods = []
+              , allowedMethodsBasePath = ""
               , serviceInvert = False
               }
           ]
@@ -252,6 +267,7 @@ mkParamConfig targetPort =
                   ]
               , serviceScripts = emptyScriptChain
               , allowedMethods = []
+              , allowedMethodsBasePath = ""
               , serviceInvert = False
               }
           ]
@@ -271,6 +287,7 @@ mkBlanketConfig targetPort =
               , serviceRoutes = []
               , serviceScripts = emptyScriptChain
               , allowedMethods = [methodGet, methodPost]
+              , allowedMethodsBasePath = ""
               , serviceInvert = False
               }
           ]
@@ -292,6 +309,7 @@ mkInvertedConfig targetPort =
                   ]
               , serviceScripts = emptyScriptChain
               , allowedMethods = [methodGet, methodPost]
+              , allowedMethodsBasePath = ""
               , serviceInvert = True
               }
           ]
@@ -313,6 +331,7 @@ mkNoAuthConfig targetPort =
                   ]
               , serviceScripts = emptyScriptChain
               , allowedMethods = []
+              , allowedMethodsBasePath = ""
               , serviceInvert = False
               }
           ]

@@ -55,7 +55,7 @@ spec = do
     it "can be constructed with auth and routes" $ do
       let auth = AuthConfig Bearer "secret" Nothing
           route = RouteConfig "/test" "/api/test" methodGet emptyScriptChain
-          svc = ServiceConfig "test-service" "https://example.com" (Just auth) [route] emptyScriptChain [] False
+          svc = ServiceConfig "test-service" "https://example.com" (Just auth) [route] emptyScriptChain [] "" False
       serviceName svc `shouldBe` "test-service"
       serviceBaseUrl svc `shouldBe` "https://example.com"
       length (serviceRoutes svc) `shouldBe` 1

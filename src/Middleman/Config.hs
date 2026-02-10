@@ -159,8 +159,9 @@ instance FromJSON ServiceConfig where
         Just method -> pure method
         Nothing     -> fail ("Unknown HTTP method in allowedMethods: " <> unpack m)
       ) methodStrs
+    basePath <- o .:? "allowedMethodsBasePath" .!= ("" :: Text)
     invert <- o .:? "invert" .!= False
-    pure (ServiceConfig name baseUrl auth routes scripts methods invert)
+    pure (ServiceConfig name baseUrl auth routes scripts methods basePath invert)
 
 instance FromJSON AuthConfig where
   parseJSON = withObject "AuthConfig" $ \o -> do

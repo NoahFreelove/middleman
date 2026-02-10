@@ -70,7 +70,7 @@ matchNormal svc path method =
                MethodNotAllowed path
            | method `elem` blanket ->
                -- Blanket match
-               RouteMatched svc (synthesizeBlanketRoute (serviceName svc) path method) []
+               RouteMatched svc (synthesizeBlanketRoute (serviceName svc) (allowedMethodsBasePath svc) path method) []
            | not (null blanket) ->
                -- Blanket exists but method not in it
                MethodNotAllowed path
@@ -90,18 +90,20 @@ matchInverted svc path method
                    ]
        in case denied of
             (_ : _) -> RouteDenied path
-            []      -> RouteMatched svc (synthesizeBlanketRoute (serviceName svc) path method) []
+            []      -> RouteMatched svc (synthesizeBlanketRoute (serviceName svc) (allowedMethodsBasePath svc) path method) []
 
 -- | Synthesize a RouteConfig for blanket matches (no explicit route).
--- Strips the /<serviceName> prefix from the path to derive the target path.
-synthesizeBlanketRoute :: Text -> Text -> Method -> RouteConfig
-synthesizeBlanketRoute svcName path method =
-  RouteConfig
-    { routePath = path
-    , routeTargetPath = stripServicePrefix svcName path
-    , routeMethod = method
-    , routeScripts = ScriptChain [] []
-    }
+-- Strips the /<serviceName> prefix from the path and prepends the basePath to derive the target path.
+synthesizeBlanketRoute :: Text -> Text -> Text -> Method -> RouteConfig
+synthesizeBlanketRoute svcName basePath path method =
+  let stripped = stripServicePrefix svcName path
+      target = if T.null basePath then stripped else basePath <> stripped
+   in RouteConfig
+        { routePath = path
+        , routeTargetPath = target
+        , routeMethod = method
+        , routeScripts = ScriptChain [] []
+        }
 
 -- | Strip the /<serviceName> prefix from a path.
 -- e.g., stripServicePrefix "jira" "/jira/rest/api/3/search" = "/rest/api/3/search"

@@ -170,11 +170,11 @@ spec = do
 
   describe "synthesizeBlanketRoute" $ do
     it "strips service prefix from path" $ do
-      let route = synthesizeBlanketRoute "jira" "/jira/rest/api/search" methodGet
+      let route = synthesizeBlanketRoute "jira" "" "/jira/rest/api/search" methodGet
       routeTargetPath route `shouldBe` "/rest/api/search"
 
     it "returns / for service root" $ do
-      let route = synthesizeBlanketRoute "jira" "/jira" methodGet
+      let route = synthesizeBlanketRoute "jira" "" "/jira" methodGet
       routeTargetPath route `shouldBe` "/"
 
   describe "matchPattern" $ do
@@ -207,15 +207,15 @@ mkCfg = GlobalConfig 8080 emptyScriptChain
 
 mkSvc :: Text -> [RouteConfig] -> ServiceConfig
 mkSvc name routes =
-  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes emptyScriptChain [] False
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes emptyScriptChain [] "" False
 
 mkSvcBlanket :: Text -> [RouteConfig] -> [Method] -> ServiceConfig
 mkSvcBlanket name routes methods =
-  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes emptyScriptChain methods False
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes emptyScriptChain methods "" False
 
 mkSvcInverted :: Text -> [RouteConfig] -> [Method] -> ServiceConfig
 mkSvcInverted name routes methods =
-  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes emptyScriptChain methods True
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes emptyScriptChain methods "" True
 
 mkRoute :: Text -> Text -> Method -> RouteConfig
 mkRoute path target method = RouteConfig path target method (ScriptChain [] [])

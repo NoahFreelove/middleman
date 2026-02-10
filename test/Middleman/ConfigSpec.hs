@@ -314,15 +314,15 @@ mkService name = mkServiceWithUrl name "https://example.com"
 
 mkServiceWithUrl :: Text -> Text -> [RouteConfig] -> ServiceConfig
 mkServiceWithUrl name url routes =
-  ServiceConfig name url (Just (AuthConfig Bearer "tok" Nothing)) routes (ScriptChain [] []) [] False
+  ServiceConfig name url (Just (AuthConfig Bearer "tok" Nothing)) routes (ScriptChain [] []) [] "" False
 
 mkServiceInverted :: Text -> [RouteConfig] -> Bool -> ServiceConfig
 mkServiceInverted name routes inv =
-  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes (ScriptChain [] []) [] inv
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) routes (ScriptChain [] []) [] "" inv
 
 mkServiceInvertedWithMethods :: Text -> [Method] -> Bool -> ServiceConfig
 mkServiceInvertedWithMethods name methods inv =
-  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) [] (ScriptChain [] []) methods inv
+  ServiceConfig name "https://example.com" (Just (AuthConfig Bearer "tok" Nothing)) [] (ScriptChain [] []) methods "" inv
 
 mkRoute :: Text -> Text -> RouteConfig
 mkRoute path target = RouteConfig path target methodGet (ScriptChain [] [])

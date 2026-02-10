@@ -96,6 +96,8 @@ data ServiceConfig = ServiceConfig
   -- ^ Scripts that apply to all routes in this service
   , allowedMethods :: [Method]
   -- ^ Blanket method permissions for any path under the service, default []
+  , allowedMethodsBasePath :: Text
+  -- ^ Prefix prepended to the target path for blanket (non-explicit) routes, default ""
   , serviceInvert :: Bool
   -- ^ When True, routes act as a denylist instead of allowlist, default False
   }
