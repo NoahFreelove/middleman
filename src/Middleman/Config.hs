@@ -47,10 +47,15 @@ parseConfig bs =
     Left err -> Left (ConfigParseError (pack err))
     Right cfg -> Right cfg
 
+-- | Reserved service names that cannot be used
+reservedServiceNames :: [Text]
+reservedServiceNames = ["index"]
+
 -- | Validate a parsed GlobalConfig
 validateConfig :: GlobalConfig -> Either ConfigError GlobalConfig
 validateConfig cfg = do
   validatePort (globalPort cfg)
+  validateNoReservedServiceNames cfg
   validateNoDuplicateRoutes cfg
   validateServiceUrls cfg
   validateUniqueServiceNames cfg
@@ -61,6 +66,15 @@ validatePort :: Int -> Either ConfigError ()
 validatePort port
   | port >= 1 && port <= 65535 = Right ()
   | otherwise = Left (ConfigValidationError ("Invalid port: " <> pack (show port) <> ". Must be between 1 and 65535."))
+
+validateNoReservedServiceNames :: GlobalConfig -> Either ConfigError ()
+validateNoReservedServiceNames cfg =
+  mapM_ check (globalServices cfg)
+  where
+    check svc
+      | toLower (serviceName svc) `elem` reservedServiceNames =
+          Left (ConfigValidationError ("Service name '" <> serviceName svc <> "' is reserved."))
+      | otherwise = Right ()
 
 validateNoDuplicateRoutes :: GlobalConfig -> Either ConfigError ()
 validateNoDuplicateRoutes cfg =

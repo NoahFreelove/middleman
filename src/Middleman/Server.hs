@@ -4,9 +4,11 @@ module Middleman.Server
   ) where
 
 import Control.Exception (finally)
+import qualified Data.Aeson as Aeson
+import Data.Aeson ((.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import Data.Text (pack)
+import Data.Text (Text, pack)
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Middleman.Logging
   ( Logger
@@ -27,6 +29,7 @@ import Middleman.Types
   , MiddlemanResponse (..)
   , PathParams
   , RouteConfig (..)
+  , ServiceConfig (..)
   )
 import qualified Network.HTTP.Client as HTTP
 import qualified Network.HTTP.Client.TLS as TLS
@@ -36,6 +39,7 @@ import Network.HTTP.Types
   , internalServerError500
   , methodNotAllowed405
   , notFound404
+  , ok200
   , statusCode
   )
 import qualified Network.Wai as Wai
@@ -63,6 +67,46 @@ makeApp logger manager cfg waiReq respond = do
   let path = decodeUtf8 (Wai.rawPathInfo waiReq)
       method = Wai.requestMethod waiReq
   logRequest logger method path
+  case path of
+    "/index" -> respond $ serveIndex cfg
+    _ -> handleRoute logger manager cfg path method waiReq respond
+
+-- | Serve the index page showing available routes
+serveIndex :: GlobalConfig -> Wai.Response
+serveIndex cfg =
+  Wai.responseLBS ok200
+    [(hContentType, "application/json")]
+    (Aeson.encode (indexPayload cfg))
+
+-- | Build the JSON index payload from config
+indexPayload :: GlobalConfig -> Aeson.Value
+indexPayload cfg =
+  Aeson.object
+    [ "services" .= map serviceIndex (globalServices cfg) ]
+  where
+    serviceIndex :: ServiceConfig -> Aeson.Value
+    serviceIndex svc =
+      Aeson.object $
+        [ "name" .= serviceName svc
+        , "routes" .= map routeIndex (serviceRoutes svc)
+        ] ++
+        [ "allowedMethods" .= map decodeUtf8 (allowedMethods svc)
+        | not (null (allowedMethods svc))
+        ] ++
+        [ "invert" .= True
+        | serviceInvert svc
+        ]
+
+    routeIndex :: RouteConfig -> Aeson.Value
+    routeIndex route =
+      Aeson.object
+        [ "path" .= routePath route
+        , "method" .= decodeUtf8 (routeMethod route)
+        ]
+
+-- | Handle a normal (non-index) request
+handleRoute :: Logger -> HTTP.Manager -> GlobalConfig -> Text -> BS.ByteString -> Wai.Application
+handleRoute logger manager cfg path method waiReq respond =
   case matchRoute cfg path method of
     NoRouteFound -> do
       logError logger ("No route found: " <> path)
