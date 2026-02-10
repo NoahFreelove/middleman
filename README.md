@@ -55,3 +55,12 @@ this case would just be `/users`).
 
 `targetPath` is where you want it to go (relative to the service name). So if I wanted that route to redirect to `my_service.com/get/users`,
 assuming my service name is `my_service`, the `targetPath` would just be "/get/users".
+
+### Using Middleman effectively
+
+* To have its intended purpose, do not run this server on the same server/container as your agent as it could just bypass it by 
+reading your api keys. Alternatively you can also try to limit your agent's permissions and keep the server running in a secure
+folder.
+
+* Try to avoid allowing entire methods like all `GET` unless you're sure that the agent could not use a GET route to retrieve sensitive information.
+
