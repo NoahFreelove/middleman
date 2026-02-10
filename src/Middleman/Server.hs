@@ -68,6 +68,7 @@ makeApp logger manager cfg waiReq respond = do
       method = Wai.requestMethod waiReq
   logRequest logger method path
   case path of
+    "/" -> respond $ serveIndex cfg
     "/index" -> respond $ serveIndex cfg
     _ -> handleRoute logger manager cfg path method waiReq respond
 
