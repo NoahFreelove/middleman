@@ -9,6 +9,7 @@ import Data.Aeson ((.=))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text, pack)
+import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import Middleman.Logging
   ( Logger
@@ -64,7 +65,7 @@ startServer cfg = do
 -- | Build a WAI Application from config
 makeApp :: Logger -> HTTP.Manager -> GlobalConfig -> Wai.Application
 makeApp logger manager cfg waiReq respond = do
-  let path = decodeUtf8 (Wai.rawPathInfo waiReq)
+  let path = normalizePath (decodeUtf8 (Wai.rawPathInfo waiReq))
       method = Wai.requestMethod waiReq
   logRequest logger method path
   case path of
@@ -180,3 +181,9 @@ renderPipelineError (PipelineProxyError (ProxyHttpError msg)) =
 
 toBS :: String -> BS.ByteString
 toBS = encodeUtf8 . pack
+
+-- | Collapse consecutive slashes in a path (e.g. "//jira//issues" -> "/jira/issues")
+normalizePath :: Text -> Text
+normalizePath t =
+  let collapsed = T.intercalate "/" (filter (not . T.null) (T.splitOn "/" t))
+   in if T.null collapsed then "/" else "/" <> collapsed

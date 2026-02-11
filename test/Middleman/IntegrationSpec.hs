@@ -113,6 +113,18 @@ spec = do
           let body = LBS.toStrict (HTTP.responseBody resp)
           BS.isInfixOf "query=?jql=project%3DTEST&maxResults=50" body `shouldBe` True
 
+    it "normalizes double slashes in path" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkConfig targetPort
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "//test/get")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+          let body = LBS.toStrict (HTTP.responseBody resp)
+          BS.isInfixOf "path=/api/get" body `shouldBe` True
+
     it "returns 404 for unknown routes" $ do
       Warp.testWithApplication (pure echoApp) $ \targetPort -> do
         let cfg = mkConfig targetPort
