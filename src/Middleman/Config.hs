@@ -5,6 +5,7 @@ module Middleman.Config
   , parseConfig
   , validateConfig
   , normalizeConfig
+  , substituteEnvVars
   , module Middleman.Config.Types
   ) where
 
@@ -13,9 +14,13 @@ import Data.Aeson (FromJSON (..), (.:), (.:?), (.!=), withObject)
 import Data.Aeson.Types (Parser)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as LBS
-import Data.List (nub)
+import Data.Char (isAlphaNum, isSpace)
+import Data.List (dropWhileEnd, nub)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text, pack, toLower, unpack)
 import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
+import Control.Monad (when)
 import Middleman.Config.Types
 import Middleman.Types
   ( AuthConfig (..)
@@ -29,6 +34,8 @@ import Middleman.Types
   )
 import Network.HTTP.Types (Method, methodDelete, methodGet, methodPatch, methodPost, methodPut)
 import System.Directory (doesFileExist)
+import System.Environment (lookupEnv, setEnv)
+import System.FilePath (takeDirectory, (</>))
 
 -- | Load and parse a config file from disk
 loadConfig :: FilePath -> IO (Either ConfigError GlobalConfig)
@@ -37,8 +44,13 @@ loadConfig path = do
   if not exists
     then pure (Left (ConfigFileNotFound path))
     else do
+      -- Load .env file from same directory as config
+      let envPath = takeDirectory path </> ".env"
+      loadDotEnv envPath
+      -- Read config and substitute env vars
       contents <- LBS.readFile path
-      pure (parseConfig contents >>= (validateConfig . normalizeConfig))
+      substituted <- substituteEnvVars contents
+      pure (substituted >>= parseConfig >>= (validateConfig . normalizeConfig))
 
 -- | Parse a JSON ByteString into a GlobalConfig
 parseConfig :: ByteString -> Either ConfigError GlobalConfig
@@ -138,7 +150,8 @@ instance FromJSON GlobalConfig where
     scriptObj <- o .:? "globalScripts" .!= Aeson.Object mempty
     scripts <- parseJSON scriptObj
     services <- o .:? "services" .!= []
-    pure (GlobalConfig port scripts services)
+    authTok <- o .:? "authToken"
+    pure (GlobalConfig port scripts services authTok)
 
 instance FromJSON ScriptChain where
   parseJSON = withObject "ScriptChain" $ \o -> do
@@ -219,3 +232,59 @@ prefixRoute name route =
     ensureLeadingSlash t
       | T.isPrefixOf "/" t = t
       | otherwise = "/" <> t
+
+-- | Load a .env file into the process environment (if it exists)
+loadDotEnv :: FilePath -> IO ()
+loadDotEnv envPath = do
+  exists <- doesFileExist envPath
+  when exists $ do
+    contents <- Prelude.readFile envPath
+    let entries = parseEnvFile contents
+    mapM_ (\(k, v) -> setEnv k v) entries
+
+-- | Parse a .env file into key-value pairs
+parseEnvFile :: String -> [(String, String)]
+parseEnvFile = mapMaybe parseLine . lines
+  where
+    parseLine :: String -> Maybe (String, String)
+    parseLine line = case stripped of
+      [] -> Nothing
+      '#' : _ -> Nothing
+      _ -> case break (== '=') stripped of
+        (key, '=' : val) | not (null key) -> Just (trimStr key, trimStr val)
+        _ -> Nothing
+      where
+        stripped = trimStr line
+
+    trimStr :: String -> String
+    trimStr = dropWhileEnd isSpace . dropWhile isSpace
+
+-- | Substitute $VAR_NAME patterns in a lazy ByteString with environment variable values
+substituteEnvVars :: ByteString -> IO (Either ConfigError ByteString)
+substituteEnvVars lbs = do
+  let txt = decodeUtf8 (LBS.toStrict lbs)
+  result <- substituteText txt
+  pure (fmap (LBS.fromStrict . encodeUtf8) result)
+
+-- | Substitute $VAR_NAME patterns in Text with environment variable values
+substituteText :: Text -> IO (Either ConfigError Text)
+substituteText txt =
+  case T.breakOn "$" txt of
+    (_, after) | T.null after -> pure (Right txt)
+    (before, after) -> do
+      let afterDollar = T.drop 1 after
+          (varName, rest) = T.span isEnvChar afterDollar
+      if T.null varName
+        then do
+          result <- substituteText rest
+          pure (fmap (\r -> before <> "$" <> r) result)
+        else do
+          mVal <- lookupEnv (T.unpack varName)
+          case mVal of
+            Nothing -> pure (Left (ConfigParseError ("Undefined environment variable: " <> varName)))
+            Just val -> do
+              result <- substituteText rest
+              pure (fmap (\r -> before <> pack val <> r) result)
+  where
+    isEnvChar :: Char -> Bool
+    isEnvChar c = isAlphaNum c || c == '_'

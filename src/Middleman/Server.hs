@@ -42,6 +42,7 @@ import Network.HTTP.Types
   , notFound404
   , ok200
   , statusCode
+  , unauthorized401
   )
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -68,10 +69,24 @@ makeApp logger manager cfg waiReq respond = do
   let path = normalizePath (decodeUtf8 (Wai.rawPathInfo waiReq))
       method = Wai.requestMethod waiReq
   logRequest logger method path
-  case path of
-    "/" -> respond $ serveIndex cfg
-    "/index" -> respond $ serveIndex cfg
-    _ -> handleRoute logger manager cfg path method waiReq respond
+  if not (checkAgentAuth cfg waiReq)
+    then respond $ Wai.responseLBS unauthorized401
+      [(hContentType, "application/json")]
+      "{\"error\":\"Unauthorized\"}"
+    else case path of
+      "/" -> respond $ serveIndex cfg
+      "/index" -> respond $ serveIndex cfg
+      _ -> handleRoute logger manager cfg path method waiReq respond
+
+-- | Check incoming request against the global auth token (if configured)
+checkAgentAuth :: GlobalConfig -> Wai.Request -> Bool
+checkAgentAuth cfg waiReq =
+  case globalAuthToken cfg of
+    Nothing -> True  -- open access, no token required
+    Just token ->
+      let authHeader = lookup "Authorization" (Wai.requestHeaders waiReq)
+          expected = "Bearer " <> encodeUtf8 token
+      in authHeader == Just expected
 
 -- | Serve the index page showing available routes
 serveIndex :: GlobalConfig -> Wai.Response

@@ -73,7 +73,7 @@ spec = do
 -- Helpers
 
 mkCfg :: ScriptChain -> GlobalConfig
-mkCfg scripts = GlobalConfig 8080 scripts []
+mkCfg scripts = GlobalConfig 8080 scripts [] Nothing
 
 mkSvc :: ScriptChain -> ServiceConfig
 mkSvc scripts =

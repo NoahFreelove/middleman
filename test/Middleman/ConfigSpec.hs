@@ -1,12 +1,14 @@
 module Middleman.ConfigSpec (spec) where
 
 import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified Data.Text as T
 import Data.Text (Text)
 import Middleman.Config
   ( ConfigError (..)
   , normalizeConfig
   , parseConfig
   , renderConfigError
+  , substituteEnvVars
   , validateConfig
   )
 import Middleman.Types
@@ -20,6 +22,7 @@ import Middleman.Types
   , ServiceConfig (..)
   )
 import Network.HTTP.Types (Method, methodGet, methodPost)
+import System.Environment (setEnv, unsetEnv)
 import Test.Hspec
 
 validConfigJson :: LBS.ByteString
@@ -216,6 +219,47 @@ spec = do
           let route = Prelude.head (serviceRoutes (Prelude.head (globalServices cfg)))
           routeTargetPath route `shouldBe` "/p"
 
+    it "parses authToken when present" $ do
+      let json = "{\"authToken\":\"my-secret\",\"port\":8080}"
+      case parseConfig json of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> globalAuthToken cfg `shouldBe` Just "my-secret"
+
+    it "defaults authToken to Nothing when omitted" $ do
+      case parseConfig minimalConfigJson of
+        Left err -> expectationFailure ("Parse failed: " <> show err)
+        Right cfg -> globalAuthToken cfg `shouldBe` Nothing
+
+  describe "substituteEnvVars" $ do
+    it "substitutes $VAR with environment variable value" $ do
+      setEnv "TEST_SUB_VAR" "hello"
+      result <- substituteEnvVars "{\"key\": \"$TEST_SUB_VAR\"}"
+      result `shouldBe` Right "{\"key\": \"hello\"}"
+      unsetEnv "TEST_SUB_VAR"
+
+    it "substitutes multiple variables" $ do
+      setEnv "TEST_VAR_A" "foo"
+      setEnv "TEST_VAR_B" "bar"
+      result <- substituteEnvVars "{\"a\": \"$TEST_VAR_A\", \"b\": \"$TEST_VAR_B\"}"
+      result `shouldBe` Right "{\"a\": \"foo\", \"b\": \"bar\"}"
+      unsetEnv "TEST_VAR_A"
+      unsetEnv "TEST_VAR_B"
+
+    it "leaves text without $ unchanged" $ do
+      result <- substituteEnvVars "{\"key\": \"plain\"}"
+      result `shouldBe` Right "{\"key\": \"plain\"}"
+
+    it "fails on undefined environment variable" $ do
+      unsetEnv "UNDEFINED_TEST_VAR_XYZ"
+      result <- substituteEnvVars "{\"key\": \"$UNDEFINED_TEST_VAR_XYZ\"}"
+      case result of
+        Left (ConfigParseError msg) -> msg `shouldSatisfy` T.isInfixOf "UNDEFINED_TEST_VAR_XYZ"
+        _ -> expectationFailure "Expected ConfigParseError for undefined var"
+
+    it "preserves lone $ not followed by word chars" $ do
+      result <- substituteEnvVars "{\"price\": \"$\"}"
+      result `shouldBe` Right "{\"price\": \"$\"}"
+
   describe "validateConfig" $ do
     it "rejects port 0" $ do
       let cfg = mkConfig 0 []
@@ -305,7 +349,7 @@ spec = do
 -- Helpers
 
 mkConfig :: Int -> [ServiceConfig] -> GlobalConfig
-mkConfig port svcs = GlobalConfig port emptyChain svcs
+mkConfig port svcs = GlobalConfig port emptyChain svcs Nothing
   where
     emptyChain = ScriptChain [] []
 

@@ -62,7 +62,7 @@ spec = do
 
   describe "GlobalConfig" $ do
     it "can be constructed with default port" $ do
-      let cfg = GlobalConfig 8080 emptyScriptChain []
+      let cfg = GlobalConfig 8080 emptyScriptChain [] Nothing
       globalPort cfg `shouldBe` 8080
       globalServices cfg `shouldBe` []
 

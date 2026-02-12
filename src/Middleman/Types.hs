@@ -108,6 +108,8 @@ data GlobalConfig = GlobalConfig
   { globalPort :: Int
   , globalScripts :: ScriptChain
   , globalServices :: [ServiceConfig]
+  , globalAuthToken :: Maybe Text
+  -- ^ Optional Bearer token required on incoming agent requests
   }
   deriving (Show, Eq, Generic)
 

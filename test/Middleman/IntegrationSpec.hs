@@ -2,7 +2,7 @@ module Middleman.IntegrationSpec (spec) where
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
-import Data.Text (pack)
+import Data.Text (Text, pack)
 import Middleman.Config (normalizeConfig)
 import Middleman.Logging (newLogger)
 import Middleman.Server (makeApp)
@@ -24,6 +24,7 @@ import Network.HTTP.Types
   , methodPost
   , notFound404
   , ok200
+  , unauthorized401
   )
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
@@ -238,6 +239,77 @@ spec = do
           resp <- HTTP.httpLbs req manager
           HTTP.responseStatus resp `shouldBe` methodNotAllowed405
 
+  describe "agent auth token" $ do
+    it "returns 401 when token is required but missing" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkAuthConfig targetPort (Just "secret-token")
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/get")
+          let req = initReq { HTTP.checkResponse = \_ _ -> pure () }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` unauthorized401
+
+    it "returns 401 when token is wrong" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkAuthConfig targetPort (Just "secret-token")
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/get")
+          let req = initReq
+                { HTTP.requestHeaders = [("Authorization", "Bearer wrong-token")]
+                , HTTP.checkResponse = \_ _ -> pure ()
+                }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` unauthorized401
+
+    it "returns 200 with correct token" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkAuthConfig targetPort (Just "secret-token")
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/get")
+          let req = initReq
+                { HTTP.requestHeaders = [("Authorization", "Bearer secret-token")]
+                }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+
+    it "returns 401 on /index when token is required" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkAuthConfig targetPort (Just "secret-token")
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/index")
+          let req = initReq { HTTP.checkResponse = \_ _ -> pure () }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` unauthorized401
+
+    it "returns 401 on / when token is required" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkAuthConfig targetPort (Just "secret-token")
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          initReq <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/")
+          let req = initReq { HTTP.checkResponse = \_ _ -> pure () }
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` unauthorized401
+
+    it "allows open access when authToken is Nothing" $ do
+      Warp.testWithApplication (pure echoApp) $ \targetPort -> do
+        let cfg = mkAuthConfig targetPort Nothing
+        logger <- newLogger
+        manager <- HTTP.newManager HTTP.defaultManagerSettings
+        Warp.testWithApplication (pure (makeApp logger manager cfg)) $ \mmPort -> do
+          req <- HTTP.parseRequest ("http://localhost:" <> show mmPort <> "/test/get")
+          resp <- HTTP.httpLbs req manager
+          HTTP.responseStatus resp `shouldBe` ok200
+
 -- Helpers
 
 mkConfig :: Int -> GlobalConfig
@@ -261,6 +333,7 @@ mkConfig targetPort =
               , serviceInvert = False
               }
           ]
+      , globalAuthToken = Nothing
       }
 
 mkParamConfig :: Int -> GlobalConfig
@@ -283,6 +356,7 @@ mkParamConfig targetPort =
               , serviceInvert = False
               }
           ]
+      , globalAuthToken = Nothing
       }
 
 mkBlanketConfig :: Int -> GlobalConfig
@@ -303,6 +377,7 @@ mkBlanketConfig targetPort =
               , serviceInvert = False
               }
           ]
+      , globalAuthToken = Nothing
       }
 
 mkInvertedConfig :: Int -> GlobalConfig
@@ -325,6 +400,7 @@ mkInvertedConfig targetPort =
               , serviceInvert = True
               }
           ]
+      , globalAuthToken = Nothing
       }
 
 mkNoAuthConfig :: Int -> GlobalConfig
@@ -347,4 +423,29 @@ mkNoAuthConfig targetPort =
               , serviceInvert = False
               }
           ]
+      , globalAuthToken = Nothing
+      }
+
+mkAuthConfig :: Int -> Maybe Text -> GlobalConfig
+mkAuthConfig targetPort authTok =
+  normalizeConfig
+    GlobalConfig
+      { globalPort = 0
+      , globalScripts = emptyScriptChain
+      , globalServices =
+          [ ServiceConfig
+              { serviceName = "test"
+              , serviceBaseUrl = pack ("http://localhost:" <> show targetPort)
+              , serviceAuth = Just (AuthConfig Bearer "test-secret" Nothing)
+              , serviceRoutes =
+                  [ RouteConfig "/get" "/api/get" methodGet emptyScriptChain
+                  , RouteConfig "/post" "/api/post" methodPost emptyScriptChain
+                  ]
+              , serviceScripts = emptyScriptChain
+              , allowedMethods = []
+              , allowedMethodsBasePath = ""
+              , serviceInvert = False
+              }
+          ]
+      , globalAuthToken = authTok
       }

@@ -203,7 +203,7 @@ spec = do
 -- Helpers
 
 mkCfg :: [ServiceConfig] -> GlobalConfig
-mkCfg = GlobalConfig 8080 emptyScriptChain
+mkCfg svcs = GlobalConfig 8080 emptyScriptChain svcs Nothing
 
 mkSvc :: Text -> [RouteConfig] -> ServiceConfig
 mkSvc name routes =
